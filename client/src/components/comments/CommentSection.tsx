@@ -6,6 +6,7 @@ import { Send, Trash2 } from "lucide-react"
 import { commentsAPI } from "../../services/api"
 import { useAuth } from "../../contexts/AuthContext"
 import type { Comment, CommentForm as CommentFormType } from "../../types"
+import ConfirmationModal from "../ui/ConfirmationModal"
 
 const schema = yup
   .object({
@@ -29,6 +30,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 }) => {
   const [comments, setComments] = useState<Comment[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [commentToDelete, setCommentToDelete] = useState<Comment | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const { user } = useAuth()
 
   const {
@@ -73,11 +76,16 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     }
   }
 
-  const handleDeleteComment = async (commentId: number) => {
-    if (!confirm("Are you sure you want to delete this comment?")) return
+  const handleDeleteClick = (comment: Comment) => {
+    setCommentToDelete(comment)
+    setShowDeleteModal(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!commentToDelete) return
 
     try {
-      await commentsAPI.delete(commentId)
+      await commentsAPI.delete(commentToDelete.id)
       await fetchComments()
       onCommentUpdate()
     } catch (error) {
@@ -161,8 +169,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 {isAuthenticated && user && comment.userId === user.id && (
                   <div className="flex space-x-2 ml-4">
                     <button
-                      onClick={() => handleDeleteComment(comment.id)}
-                      className="text-gray-500 hover:text-red-600"
+                      onClick={() => handleDeleteClick(comment)}
+                      className="text-gray-500 hover:text-red-600 transition-colors"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -173,6 +181,21 @@ const CommentSection: React.FC<CommentSectionProps> = ({
           ))}
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false)
+          setCommentToDelete(null)
+        }}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Comment"
+        message="Are you sure you want to delete this comment? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   )
 }

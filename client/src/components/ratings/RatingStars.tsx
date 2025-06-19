@@ -1,6 +1,7 @@
 import React, { useState } from "react"
 import { Star } from "lucide-react"
 import { ratingsAPI } from "../../services/api"
+import Notification from "../ui/Notification"
 
 interface RatingStarsProps {
   rating: number
@@ -21,11 +22,31 @@ const RatingStars: React.FC<RatingStarsProps> = ({
 }) => {
   const [hoverRating, setHoverRating] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [notification, setNotification] = useState<{
+    isOpen: boolean
+    message: string
+    type: "success" | "error" | "info" | "warning"
+  }>({
+    isOpen: false,
+    message: "",
+    type: "info",
+  })
+
+  const showNotification = (
+    message: string,
+    type: "success" | "error" | "info" | "warning" = "info"
+  ) => {
+    setNotification({
+      isOpen: true,
+      message,
+      type,
+    })
+  }
 
   const handleRatingClick = async (selectedRating: number) => {
     if (readonly || !isAuthenticated) {
       if (!isAuthenticated) {
-        alert("Please log in to rate books")
+        showNotification("Please log in to rate books", "warning")
       }
       return
     }
@@ -34,9 +55,10 @@ const RatingStars: React.FC<RatingStarsProps> = ({
       setIsSubmitting(true)
       await ratingsAPI.createOrUpdate(bookId, selectedRating)
       onRatingUpdate()
+      showNotification("Rating submitted successfully!", "success")
     } catch (error) {
       console.error("Failed to submit rating:", error)
-      alert("Failed to submit rating. Please try again.")
+      showNotification("Failed to submit rating. Please try again.", "error")
     } finally {
       setIsSubmitting(false)
     }
@@ -74,13 +96,23 @@ const RatingStars: React.FC<RatingStarsProps> = ({
   }
 
   return (
-    <div className="flex items-center space-x-2">
-      <div className="flex space-x-1">{renderStars()}</div>
-      <span className="text-sm text-gray-600">
-        {rating.toFixed(1)} ({totalRatings}{" "}
-        {totalRatings === 1 ? "rating" : "ratings"})
-      </span>
-    </div>
+    <>
+      <div className="flex items-center space-x-2">
+        <div className="flex space-x-1">{renderStars()}</div>
+        <span className="text-sm text-gray-600">
+          {rating.toFixed(1)} ({totalRatings}{" "}
+          {totalRatings === 1 ? "rating" : "ratings"})
+        </span>
+      </div>
+
+      <Notification
+        isOpen={notification.isOpen}
+        onClose={() => setNotification((prev) => ({ ...prev, isOpen: false }))}
+        message={notification.message}
+        type={notification.type}
+        duration={3000}
+      />
+    </>
   )
 }
 
