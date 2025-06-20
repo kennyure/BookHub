@@ -1,11 +1,12 @@
 /* App-specific styles can be added here if needed */
 
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
+
+/* Remove unused default Vite styles */
 
 .logo {
   height: 6em;

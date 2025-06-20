@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,10 +9,10 @@ import { booksAPI, ratingsAPI, commentsAPI } from "../../services/api"
 import type { Book, RatingResponse } from "../../types"
 import BookCard from "./BookCard"
 import BookModal from "./BookModal"
+import BookSkeleton from "../ui/BookSkeleton"
 
 const BookList: React.FC = () => {
   const [books, setBooks] = useState<Book[]>([])
-  const [filteredBooks, setFilteredBooks] = useState<Book[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [isLoading, setIsLoading] = useState(true)
@@ -42,29 +42,24 @@ const BookList: React.FC = () => {
     return () => clearTimeout(timer)
   }, [searchTerm])
 
+  // Reset to first page when search changes
   useEffect(() => {
-    const term = debouncedSearchTerm.trim().toLowerCase()
-    if (!term) {
-      setFilteredBooks(books)
-    } else {
-      const filtered = books.filter(
-        (book) => book.title.toLowerCase().includes(term)
-        // book.author.toLowerCase().includes(term) ||
-        // book.publisher.toLowerCase().includes(term)
-      )
-      setFilteredBooks(filtered)
-    }
-    // Reset to first page when search changes
     setCurrentPage(1)
-  }, [debouncedSearchTerm, books])
+  }, [debouncedSearchTerm])
 
   const fetchBooks = async () => {
     try {
       setIsLoading(true)
       setError("")
       const data = await booksAPI.getAll()
-      setBooks(data)
-      setFilteredBooks(data)
+
+      // Remove duplicates based on bookId (ISBN13)
+      const uniqueBooks = data.filter(
+        (book, index, self) =>
+          index === self.findIndex((b) => b.bookId === book.bookId)
+      )
+
+      setBooks(uniqueBooks)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       setError(error.response?.data?.message || "Failed to fetch books")
@@ -72,6 +67,36 @@ const BookList: React.FC = () => {
       setIsLoading(false)
     }
   }
+
+  // Memoized filtered books to prevent unnecessary recalculations
+  const filteredBooks = useMemo(() => {
+    const term = debouncedSearchTerm.trim().toLowerCase()
+    if (!term) {
+      return books
+    }
+
+    return books.filter(
+      (book) =>
+        book.title.toLowerCase().includes(term) ||
+        book.author.toLowerCase().includes(term) ||
+        (book.publisher && book.publisher.toLowerCase().includes(term))
+    )
+  }, [books, debouncedSearchTerm])
+
+  // Memoized pagination calculations
+  const paginationData = useMemo(() => {
+    const totalPages = Math.ceil(filteredBooks.length / booksPerPage)
+    const indexOfLastBook = currentPage * booksPerPage
+    const indexOfFirstBook = indexOfLastBook - booksPerPage
+    const currentBooks = filteredBooks.slice(indexOfFirstBook, indexOfLastBook)
+
+    return {
+      currentBooks,
+      totalPages,
+      indexOfFirstBook,
+      indexOfLastBook,
+    }
+  }, [filteredBooks, currentPage, booksPerPage])
 
   const handleCardClick = (book: Book) => {
     setSelectedBook(book)
@@ -105,12 +130,6 @@ const BookList: React.FC = () => {
     }
   }
 
-  // Pagination calculations
-  const indexOfLastBook = currentPage * booksPerPage
-  const indexOfFirstBook = indexOfLastBook - booksPerPage
-  const currentBooks = filteredBooks.slice(indexOfFirstBook, indexOfLastBook)
-  const totalPages = Math.ceil(filteredBooks.length / booksPerPage)
-
   // Page navigation functions
   const goToPage = (pageNumber: number) => {
     setCurrentPage(pageNumber)
@@ -121,7 +140,7 @@ const BookList: React.FC = () => {
   }
 
   const goToLastPage = () => {
-    setCurrentPage(totalPages)
+    setCurrentPage(paginationData.totalPages)
   }
 
   const goToPreviousPage = () => {
@@ -129,13 +148,14 @@ const BookList: React.FC = () => {
   }
 
   const goToNextPage = () => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+    setCurrentPage((prev) => Math.min(prev + 1, paginationData.totalPages))
   }
 
   // Generate page numbers to display
   const getPageNumbers = () => {
     const pages = []
     const maxVisiblePages = 5
+    const { totalPages } = paginationData
 
     if (totalPages <= maxVisiblePages) {
       // Show all pages if total is small
@@ -160,12 +180,11 @@ const BookList: React.FC = () => {
     return pages
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading books...</div>
-      </div>
-    )
+  // Render skeleton loaders
+  const renderSkeletons = () => {
+    return Array.from({ length: booksPerPage }, (_, index) => (
+      <BookSkeleton key={`skeleton-${index}`} />
+    ))
   }
 
   if (error) {
@@ -179,7 +198,6 @@ const BookList: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Books</h1>
         <div className="relative">
           <input
             type="text"
@@ -187,26 +205,44 @@ const BookList: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            disabled={isLoading}
           />
         </div>
-        <p className="text-gray-600 mt-2">
-          Showing {currentBooks.length} of {filteredBooks.length} books (Page{" "}
-          {currentPage} of {totalPages})
-        </p>
+        {!isLoading && (
+          <p className="text-gray-600 mt-2">
+            Showing {paginationData.currentBooks.length} of{" "}
+            {filteredBooks.length} books
+            {books.length !== filteredBooks.length &&
+              ` (filtered from ${books.length} total)`}
+            {paginationData.totalPages > 1 &&
+              ` (Page ${currentPage} of ${paginationData.totalPages})`}
+          </p>
+        )}
       </div>
 
-      {filteredBooks.length === 0 && (
+      {/* Loading state with skeletons */}
+      {isLoading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {renderSkeletons()}
+        </div>
+      )}
+
+      {/* Error state for no books */}
+      {!isLoading && filteredBooks.length === 0 && (
         <div className="text-center py-12">
           <p className="text-gray-500 text-lg">
-            No books found matching your search.
+            {books.length === 0
+              ? "No books available at the moment."
+              : "No books found matching your search."}
           </p>
         </div>
       )}
 
-      {currentBooks.length > 0 && (
+      {/* Actual books */}
+      {!isLoading && paginationData.currentBooks.length > 0 && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
-            {currentBooks.map((book) => {
+            {paginationData.currentBooks.map((book) => {
               const data = bookData.get(book.bookId || "")
               return (
                 <BookCard
@@ -221,7 +257,7 @@ const BookList: React.FC = () => {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {paginationData.totalPages > 1 && (
             <div className="flex items-center justify-center space-x-2">
               {/* First Page */}
               <button
@@ -259,7 +295,7 @@ const BookList: React.FC = () => {
               {/* Next Page */}
               <button
                 onClick={goToNextPage}
-                disabled={currentPage === totalPages}
+                disabled={currentPage === paginationData.totalPages}
                 className="p-2 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight size={16} />
@@ -268,7 +304,7 @@ const BookList: React.FC = () => {
               {/* Last Page */}
               <button
                 onClick={goToLastPage}
-                disabled={currentPage === totalPages}
+                disabled={currentPage === paginationData.totalPages}
                 className="p-2 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronsRight size={16} />
